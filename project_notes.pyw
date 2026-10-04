@@ -16,6 +16,13 @@ import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
+# Импорт модуля Google Drive
+try:
+    from google_drive_sync import sync_to_drive, sync_from_drive, auto_backup, HAS_GOOGLE
+    GOOGLE_AVAILABLE = HAS_GOOGLE
+except ImportError:
+    GOOGLE_AVAILABLE = False
+
 APP_NAME = "DevNotes — Записки разработчика"
 COMMON_KEY = "__common__"  # служебный ключ для раздела «Общая логика»
 
@@ -109,6 +116,7 @@ class App(tk.Tk):
         self.data = load_data()
         self.current = COMMON_KEY   # что сейчас показано справа
         self._loading = False       # чтобы автосохранение не срабатывало при загрузке
+        self._syncing = False       # флаг синхронизации
 
         self.title(APP_NAME)
         self.geometry("980x620")
@@ -120,6 +128,10 @@ class App(tk.Tk):
         self._refresh_project_list()
         self._select_in_list(COMMON_KEY)
         self._load_entry_into_form(COMMON_KEY)
+
+        # Пробуем загрузить данные с Google Drive при старте
+        if GOOGLE_AVAILABLE:
+            self._try_load_from_drive()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
@@ -205,6 +217,20 @@ class App(tk.Tk):
         ttk.Button(btns, text="+ Новый", command=self._add_project).pack(side="left", expand=True, fill="x")
         ttk.Button(btns, text="→ Переимен.", command=self._rename_project).pack(side="left", expand=True, fill="x")
         ttk.Button(btns, text="− Удалить", command=self._delete_project).pack(side="left", expand=True, fill="x")
+
+        # Кнопки синхронизации с Google Drive
+        if GOOGLE_AVAILABLE:
+            sync_btns = ttk.Frame(left)
+            sync_btns.pack(fill="x", pady=(6, 0))
+            self.sync_btn = ttk.Button(sync_btns, text="☁ Синхронизировать", command=self._sync_to_drive)
+            self.sync_btn.pack(fill="x")
+            self.sync_btn.config(style="Sync.TButton")
+            style = ttk.Style(self)
+            style.configure("Sync.TButton", background="#2ea44f", foreground="#ffffff",
+                           bordercolor="#2ea44f", focuscolor="#2ea44f", padding=4, relief="flat")
+            style.map("Sync.TButton",
+                     background=[("active", "#3fb950"), ("pressed", "#3fb950")])
+            self.status.config(text="Google Drive подключён")
 
         # ----- правая часть: форма записи -----
         right = ttk.Frame(paned)
@@ -501,18 +527,69 @@ class App(tk.Tk):
         self._render_tasks()
         self._autosave()
 
-    # ---------- сохранение ----------
+    # ---------- Google Drive синхронизация ----------
+    def _try_load_from_drive(self):
+        """Попытка загрузить данные с Google Drive при старте."""
+        try:
+            success, msg = sync_from_drive(DATA_FILE)
+            if success:
+                self.data = load_data()
+                self.status.config(text="Загружено с Google Drive")
+        except Exception:
+            pass  # если ошибка — работаем с локальными данными
+
+    def _sync_to_drive(self):
+        """Ручная синхронизация с Google Drive."""
+        if self._syncing:
+            return
+        self._syncing = True
+        self.sync_btn.config(text="☁ Синхронизация...")
+        self.status.config(text="Отправка на Google Drive...")
+
+        def do_sync():
+            try:
+                success, msg = sync_to_drive(DATA_FILE)
+                self.status.config(text=msg)
+                if success:
+                    messagebox.showinfo(APP_NAME, msg, parent=self)
+            except Exception as ex:
+                self.status.config(text=f"Ошибка: {str(ex)}")
+            finally:
+                self._syncing = False
+                self.sync_btn.config(text="☁ Синхронизировать")
+
+        # Запускаем в отдельном потоке, чтобы не блокировать UI
+        import threading
+        threading.Thread(target=do_sync, daemon=True).start()
+
     def _autosave(self):
         try:
             save_data(self.data)
             now = datetime.datetime.now().strftime("%H:%M:%S")
             self.status.config(text="Сохранено в " + now)
+
+            # Автоматическая синхронизация с Google Drive
+            if GOOGLE_AVAILABLE and not self._syncing:
+                def auto_sync():
+                    try:
+                        sync_to_drive(DATA_FILE)
+                    except Exception:
+                        pass  # не показываем ошибки авто-синхронизации
+
+                import threading
+                threading.Thread(target=auto_sync, daemon=True).start()
         except Exception as ex:
             self.status.config(text="Ошибка сохранения: " + str(ex))
 
     def _on_close(self):
         self._save_form_into_entry()
         self._autosave()
+        # Финальная синхронизация при закрытии
+        if GOOGLE_AVAILABLE:
+            try:
+                sync_to_drive(DATA_FILE)
+            except Exception:
+                pass
         self.destroy()
 
 
