@@ -32,3 +32,4 @@ pyinstaller --noconsole --onefile --name DevNotes project_notes.py
 ## Лицензия
 
 MIT
+Проверка: мой первый коммит.
