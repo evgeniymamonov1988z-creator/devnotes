@@ -14,14 +14,7 @@ import os
 import json
 import datetime
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
-
-# Импорт модуля Google Drive
-try:
-    from google_drive_sync import sync_to_drive, sync_from_drive, auto_backup, HAS_GOOGLE
-    GOOGLE_AVAILABLE = HAS_GOOGLE
-except ImportError:
-    GOOGLE_AVAILABLE = False
+from tkinter import ttk, messagebox
 
 APP_NAME = "DevNotes — Записки разработчика"
 COMMON_KEY = "__common__"  # служебный ключ для раздела «Общая логика»
@@ -368,13 +361,59 @@ class App(tk.Tk):
         self._load_entry_into_form(key)
 
     # ---------- кнопки проектов ----------
+    def _show_name_dialog(self, prompt, initialvalue=""):
+        """Модальный диалог для ввода имени с поддержкой Ctrl+V."""
+        res = {"val": None}
+        dlg = tk.Toplevel(self)
+        dlg.title(APP_NAME)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.resizable(False, False)
+        dlg.update_idletasks()
+        dx = self.winfo_x() + (self.winfo_width() - 320) // 2
+        dy = self.winfo_y() + (self.winfo_height() - 140) // 2
+        dlg.geometry(f"+{dx}+{dy}")
+
+        frm = ttk.Frame(dlg, padding=12)
+        frm.pack(fill="both", expand=True)
+
+        ttk.Label(frm, text=prompt).pack(anchor="w")
+        ent = ttk.Entry(frm, width=40)
+        ent.pack(fill="x", pady=(0, 8))
+        ent.insert(0, initialvalue)
+        ent.select_range(0, tk.END)
+
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x")
+
+        def ok():
+            res["val"] = ent.get()
+            dlg.destroy()
+
+        def cancel():
+            res["val"] = ""
+            dlg.destroy()
+
+        ttk.Button(btns, text="OK", command=ok).pack(side="left", expand=True, fill="x", padx=(0, 4))
+        ttk.Button(btns, text="Отмена", command=cancel).pack(side="left", expand=True, fill="x")
+
+        def paste_clipboard(event):
+            try:
+                ent.insert(tk.INSERT, self.clipboard_get())
+            except tk.TclError:
+                pass
+        ent.bind("<Control-v>", paste_clipboard)
+        ent.bind("<Control-V>", paste_clipboard)
+        ent.bind("<Return>", lambda e: ok())
+
+        dlg.wait_window(dlg)
+        return res["val"]
+
     def _add_project(self):
-        name = simpledialog.askstring(APP_NAME, "Название нового проекта:", parent=self)
-        if not name:
+        name = self._show_name_dialog("Название нового проекта:")
+        if not name or not name.strip():
             return
         name = name.strip()
-        if not name:
-            return
         if name in self.data["projects"]:
             messagebox.showwarning(APP_NAME, "Проект с таким названием уже есть.", parent=self)
             return
@@ -392,12 +431,10 @@ class App(tk.Tk):
             messagebox.showinfo(APP_NAME, "Раздел «Общая логика» переименовать нельзя.", parent=self)
             return
         old = self.current
-        name = simpledialog.askstring(APP_NAME, "Новое название:", initialvalue=old, parent=self)
-        if not name:
+        name = self._show_name_dialog("Новое название:", initialvalue=old)
+        if not name or not name.strip() or name.strip() == old:
             return
         name = name.strip()
-        if not name or name == old:
-            return
         if name in self.data["projects"]:
             messagebox.showwarning(APP_NAME, "Такое название уже есть.", parent=self)
             return
