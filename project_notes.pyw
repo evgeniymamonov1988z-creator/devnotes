@@ -16,6 +16,13 @@ import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox
 
+# Импорт модуля Google Drive
+try:
+    from google_drive_sync import sync_to_drive, sync_from_drive, HAS_GOOGLE
+    GOOGLE_AVAILABLE = HAS_GOOGLE
+except ImportError:
+    GOOGLE_AVAILABLE = False
+
 APP_NAME = "DevNotes — Записки разработчика"
 COMMON_KEY = "__common__"  # служебный ключ для раздела «Общая логика»
 
